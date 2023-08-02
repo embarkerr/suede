@@ -120,11 +120,11 @@ func (wsClient *wsclient) Connect() error {
 }
 
 func (wsClient *wsclient) Read(wg *sync.WaitGroup) {
+	wg.Add(1)
 	go wsClient.readFromConnection(wg)
 }
 
 func (wsClient *wsclient) readFromConnection(wg *sync.WaitGroup) {
-	wg.Add(1)
 	defer wg.Done()
 	defer (*wsClient.connection).Close()
 
@@ -174,7 +174,6 @@ ReadForever:
 		case payloadLength == 126:
 			sizeBytes := []byte{readBuffer[2], readBuffer[3]}
 			payloadLength16 := binary.BigEndian.Uint16(sizeBytes)
-			fmt.Printf("16-bit length: %d\n", payloadLength16)
 			data = wsClient.readFrameData(readBuffer[4:], uint64(payloadLength16))
 
 		case payloadLength == 127:
@@ -183,7 +182,6 @@ ReadForever:
 				readBuffer[6], readBuffer[7], readBuffer[8], readBuffer[9],
 			}
 			payloadLength64 := binary.BigEndian.Uint64(sizeBytes)
-			fmt.Printf("64-bit length: %d\n", payloadLength64)
 			data = wsClient.readFrameData(readBuffer[10:], uint64(payloadLength64))
 		}
 
@@ -236,8 +234,6 @@ func (wsClient *wsclient) Send(data []byte) {
 	frame = append(frame, 0b10000000|byte(len(maskedData)))
 	frame = append(frame, mask...)
 	frame = append(frame, maskedData...)
-
-	fmt.Printf("%08b\n", frame)
 
 	n, err := (*wsClient.connection).Write(frame)
 	if err != nil {

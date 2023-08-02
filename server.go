@@ -40,11 +40,8 @@ func (wsServer *wsserver) Start() {
 
 func runServer(w http.ResponseWriter, request *http.Request) {
 	if request.Header.Get("Upgrade") != "" {
-		fmt.Println("handling connection")
-		fmt.Println(request.Header)
-
-		key := request.Header.Get("Sec-WebSocket-Key")
-		returnKey := GenerateWSAccept(key)
+		wsKey := request.Header.Get("Sec-WebSocket-Key")
+		wsAccept := GenerateWSAccept(wsKey)
 
 		hijacker, ok := w.(http.Hijacker)
 		if !ok {
@@ -58,7 +55,7 @@ func runServer(w http.ResponseWriter, request *http.Request) {
 		content = append(content, "HTTP/1.1 101 Switching Protocols\r\n"...)
 		content = append(content, "Upgrade: websocket\r\n"...)
 		content = append(content, "Connection: Upgrade\r\n"...)
-		content = append(content, fmt.Sprintf("Sec-WebSocket-Accept: %s", returnKey)...)
+		content = append(content, fmt.Sprintf("Sec-WebSocket-Accept: %s", wsAccept)...)
 		content = append(content, "\r\n\r\n"...)
 		connection.Write(content)
 
@@ -70,11 +67,10 @@ func runServer(w http.ResponseWriter, request *http.Request) {
 			}
 
 			opCode := b & 0b00001111
-			fmt.Printf("Op Code: %x\n", opCode)
-
 			if opCode == 0x8 {
 				break
 			}
+
 			bs := readWriter.Reader.Buffered()
 
 			mask := false
@@ -117,16 +113,16 @@ func runServer(w http.ResponseWriter, request *http.Request) {
 
 			fmt.Printf("Message = %s\n", message)
 
-			responseMessage := []byte("no u motherfucker")
+			responseMessage := []byte("I hear you loud and clear")
 			responsePayload := []byte{}
 			responsePayload = append(responsePayload, 0x81)
-			responsePayload = append(responsePayload, 0x11)
+			responsePayload = append(responsePayload, 0x19)
 			responsePayload = append(responsePayload, responseMessage...)
 			connection.Write(responsePayload)
 		}
 	}
 
-	fmt.Println("exiting handler")
+	fmt.Println("Client disconnected")
 }
 
 func (wsServer *wsserver) Send() {
