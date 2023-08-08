@@ -1,138 +1,261 @@
 package kansowebsockets
 
 import (
+	"encoding/binary"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 )
 
-type wsserver struct {
-	host         string
-	path         string
-	clients      []wsclient
-	onConnect    func()
-	onDisconnect func()
-	onMessage    func([]byte)
+type WSServerError struct {
+	message string
 }
 
-func WebSocketServer(port, path string, onConnect, onDisconnect func(), onMessage func([]byte)) (*wsserver, error) {
+func (err *WSServerError) Error() string {
+	return err.message
+}
+
+type wsserver struct {
+	Host         uint16
+	Path         string
+	OnConnect    func()
+	OnDisconnect func()
+	OnMessage    func([]byte)
+	active       bool
+	clients      []*net.Conn
+}
+
+func WebSocketServer(port uint16, path string) (*wsserver, error) {
 	wsServer := &wsserver{
-		host:         port,
-		path:         path,
-		onConnect:    onConnect,
-		onDisconnect: onDisconnect,
-		onMessage:    onMessage,
+		Host:   port,
+		Path:   path,
+		active: false,
 	}
 
 	return wsServer, nil
 }
 
-func (wsServer *wsserver) Start() {
-	var wg sync.WaitGroup
-	http.HandleFunc(wsServer.path, runServer)
-
+// Start spins up the WebSocket server entry point in a new goroutine, returning control to the
+// caller. A sync.WaitGroup is required and must be handled by the caller in the calling function.
+// If wg.Wait() is not called in the calling function, the WebSocket server will exit immediately.
+//
+// If the caller does not need to regain control, consider calling Run or RunCallback instead.
+func (wsServer *wsserver) Start(wg *sync.WaitGroup) {
+	http.HandleFunc(wsServer.Path, wsServer.runServer)
 	wg.Add(1)
+	go http.ListenAndServe(":"+fmt.Sprintf("%d", wsServer.Host), nil)
+	wsServer.active = true
+}
 
-	go http.ListenAndServe(":"+wsServer.host, nil)
+// RunCallback spins up the WebSocket server and runs the handler function passed as an argument.
+// RunCallback does not return control to the caller until the WebSocket server is shutdown.
+//
+// If the caller needs to regain control while the WebSocket server is active, consider calling
+// Start instead, and managing a sync.WaitGroup manually.
+func (wsServer *wsserver) RunCallback(handler func()) {
+	var wg sync.WaitGroup
+	wsServer.Start(&wg)
+
+	if handler != nil {
+		handler()
+	}
 
 	wg.Wait()
 }
 
-func runServer(w http.ResponseWriter, request *http.Request) {
-	if request.Header.Get("Upgrade") != "" {
-		wsKey := request.Header.Get("Sec-WebSocket-Key")
-		wsAccept := GenerateWSAccept(wsKey)
+// Run is an alias for RunCallback(nil). It is used to spin up the WebSocket Server which does not
+// have any handler behaviour. Run does not return control to the caller until the WebSocket server
+// is shutdown.
+//
+// If the caller needs to regain control while the WebSocket server is active, consider calling
+// Start instead, and managing a sync.WaitGroup manually.
+func (wsServer *wsserver) Run() {
+	wsServer.RunCallback(nil)
+}
 
-		hijacker, ok := w.(http.Hijacker)
-		if !ok {
-			return
+func (wsServer *wsserver) IsActive() bool {
+	return wsServer.active
+}
+
+func (wsServer *wsserver) Clients() []*net.Conn {
+	return wsServer.clients
+}
+
+func (wsServer *wsserver) runServer(res http.ResponseWriter, req *http.Request) {
+	connection, connectionErr := wsServer.handleConnection(res, req)
+	if connectionErr != nil {
+		panic("Connection failed")
+	}
+
+	wsServer.readFromConnection(connection)
+
+	closeErr := (*connection).Close()
+	if closeErr != nil {
+		panic("Failed to close connection")
+	}
+
+	for i := range wsServer.clients {
+		if wsServer.clients[i] == connection {
+			wsServer.clients = append(wsServer.clients[:i], wsServer.clients[i+1:]...)
+			break
+		}
+	}
+	connection = nil
+
+	if wsServer.OnDisconnect != nil {
+		wsServer.OnDisconnect()
+	}
+}
+
+func (wsServer *wsserver) handleConnection(res http.ResponseWriter, req *http.Request) (*net.Conn, error) {
+	if req.Header.Get("Upgrade") != "websocket" {
+		return nil, &WSServerError{message: "Request header not requesting websocket upgrade"}
+	}
+
+	wsKey := req.Header.Get("Sec-WebSocket-Key")
+	wsAccept := GenerateWSAccept(wsKey)
+
+	hijacker, ok := res.(http.Hijacker)
+	if !ok {
+		return nil, &WSServerError{message: "Failed to hijack the connection"}
+	}
+
+	connection, _, _ := hijacker.Hijack()
+	wsServer.clients = append(wsServer.clients, &connection)
+
+	var content []byte
+	content = append(content, "HTTP/1.1 101 Switching Protocols\r\n"...)
+	content = append(content, "Upgrade: websocket\r\n"...)
+	content = append(content, "Connection: Upgrade\r\n"...)
+	content = append(content, fmt.Sprintf("Sec-WebSocket-Accept: %s", wsAccept)...)
+	content = append(content, "\r\n\r\n"...)
+	connection.Write(content)
+
+	if wsServer.OnConnect != nil {
+		wsServer.OnConnect()
+	}
+
+	return &connection, nil
+}
+
+func (wsServer *wsserver) readFromConnection(connection *net.Conn) {
+	readBuffer := make([]byte, 256)
+
+ReadForever:
+	for true {
+		bytesRead, readErr := (*connection).Read(readBuffer)
+		if readErr != nil {
+			fmt.Printf("Read Error: %s\n", readErr.Error())
 		}
 
-		connection, readWriter, _ := hijacker.Hijack()
-		defer connection.Close()
+		if bytesRead < 2 {
+			fmt.Println("Not enough bytes for a frame")
+			continue
+		}
 
-		var content []byte
-		content = append(content, "HTTP/1.1 101 Switching Protocols\r\n"...)
-		content = append(content, "Upgrade: websocket\r\n"...)
-		content = append(content, "Connection: Upgrade\r\n"...)
-		content = append(content, fmt.Sprintf("Sec-WebSocket-Accept: %s", wsAccept)...)
-		content = append(content, "\r\n\r\n"...)
-		connection.Write(content)
+		controlByte := readBuffer[0]
+		opCode := controlByte & 0b00001111
+		switch opCode {
+		case 0x8:
+			break ReadForever
 
-		for true {
-			b, err := readWriter.Reader.ReadByte()
-			if err != nil {
-				// fmt.Printf("No byte error: %s\n", err)
-				continue
+		case 0x9:
+			// ping
+
+		case 0xA:
+			// pong
+
+		default:
+		}
+
+		payloadInfoByte := readBuffer[1]
+		mask := payloadInfoByte & 0b10000000
+		if mask == 0 {
+			fmt.Println("Client should set mask bit")
+			break
+		}
+
+		payloadLength := payloadInfoByte & 0b01111111
+
+		fmt.Println(payloadLength)
+		data := make([]byte, 0, payloadLength)
+		switch {
+		case payloadLength < 126:
+			maskValue := readBuffer[2:6]
+			data = wsServer.readFrameData(connection, maskValue, readBuffer[6:], uint64(payloadLength))
+
+		case payloadLength == 126:
+			sizeBytes := []byte{readBuffer[2], readBuffer[3]}
+			maskValue := readBuffer[4:8]
+			payloadLength16 := binary.BigEndian.Uint16(sizeBytes)
+			data = wsServer.readFrameData(connection, maskValue, readBuffer[8:], uint64(payloadLength16))
+
+		case payloadLength == 127:
+			sizeBytes := []byte{
+				readBuffer[2], readBuffer[3], readBuffer[4], readBuffer[5],
+				readBuffer[6], readBuffer[7], readBuffer[8], readBuffer[9],
 			}
+			maskValue := readBuffer[10:14]
+			payloadLength64 := binary.BigEndian.Uint64(sizeBytes)
+			data = wsServer.readFrameData(connection, maskValue, readBuffer[14:], uint64(payloadLength64))
+		}
 
-			opCode := b & 0b00001111
-			if opCode == 0x8 {
-				break
-			}
+		if wsServer.OnMessage != nil {
+			wsServer.OnMessage(data)
+		}
+	}
+}
 
-			bs := readWriter.Reader.Buffered()
-
-			mask := false
-			mask_start := 2
-			mask_value := []byte{}
-			payload_len := 0
-			data_index := 0
-			message := []byte{}
-
-			for i := 1; i < bs+1; i++ {
-				data, err := readWriter.Reader.ReadByte()
-				if err != nil {
-					fmt.Printf("No byte error: %s", err)
-					continue
-				}
-
-				if i == 1 {
-					mask = (data & 0b10000000) > 0
-					payload_len = int(data & 0b01111111)
-
-					if mask {
-						if payload_len == 126 {
-							mask_start = 4
-						} else if payload_len == 127 {
-							mask_start = 8
-						}
-					}
-				}
-
-				if i >= mask_start && i < mask_start+4 {
-					mask_value = append(mask_value, data)
-				}
-
-				if i >= mask_start+4 {
-					data_byte := data ^ mask_value[data_index%4]
-					message = append(message, data_byte)
-					data_index++
-				}
-			}
-
-			fmt.Printf("Message = %s\n", message)
-
-			responseMessage := []byte("I hear you loud and clear")
-			responsePayload := []byte{}
-			responsePayload = append(responsePayload, 0x81)
-			responsePayload = append(responsePayload, 0x19)
-			responsePayload = append(responsePayload, responseMessage...)
-			connection.Write(responsePayload)
+func (wsServer *wsserver) readFrameData(connection *net.Conn, mask []byte, readBuffer []byte, length uint64) []byte {
+	data := make([]byte, 0, length)
+	for i := 0; i < len(readBuffer); i++ {
+		data = append(data, readBuffer[i]^mask[i%4])
+		if uint64(len(data)) == length {
+			break
 		}
 	}
 
-	fmt.Println("Client disconnected")
+	bytesWritten := uint64(len(data))
+	if length <= bytesWritten {
+		return data
+	}
+
+	bytesRemaining := length - bytesWritten
+	frameBuffer := make([]byte, bytesRemaining)
+	bytesRead, err := (*connection).Read(frameBuffer)
+	if err != nil {
+		fmt.Println("Continutation read err")
+		fmt.Println(err.Error())
+	}
+
+	offset := len(data) % 4
+	for i := 0; i < bytesRead; i++ {
+		unmaskedData := frameBuffer[i] ^ mask[(i+offset)%4]
+		data = append(data, unmaskedData)
+	}
+
+	return data
 }
 
-func (wsServer *wsserver) Send() {
+func (wsServer *wsserver) Send(connection *net.Conn, data []byte) {
+	payloadLength := len(data)
+	frameLength := payloadLength + 2
+	responsePayload := make([]byte, 0, frameLength)
 
+	// TODO: Handle frames when data length > 125
+	responsePayload = append(responsePayload, 0x81)
+	responsePayload = append(responsePayload, byte(payloadLength))
+	responsePayload = append(responsePayload, data...)
+	(*connection).Write(responsePayload)
 }
 
-func (wsServer *wsserver) Broadcast() {
-
+func (wsServer *wsserver) Broadcast(data []byte) {
+	for _, client := range wsServer.clients {
+		wsServer.Send(client, data)
+	}
 }
 
 func (wsServer *wsserver) Close() {
-
+	// TODO: this
 }

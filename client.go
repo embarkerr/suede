@@ -12,16 +12,24 @@ import (
 	"sync"
 )
 
+type WSClientError struct {
+	message string
+}
+
+func (err *WSClientError) Error() string {
+	return err.message
+}
+
 type wsclient struct {
 	host         string
 	path         string
-	onConnect    func()
-	onDisconnect func()
-	onMessage    func([]byte)
+	OnConnect    func()
+	OnDisconnect func()
+	OnMessage    func([]byte)
 	connection   *net.Conn
 }
 
-func WebSocket(rawURL string, onConnect, onDisconnect func(), onMessage func([]byte)) (*wsclient, error) {
+func WebSocket(rawURL string) (*wsclient, error) {
 	urlObject, urlErr := url.Parse(rawURL)
 	if urlErr != nil {
 		fmt.Printf("Error creating URL object: %s\n", urlErr.Error())
@@ -29,29 +37,69 @@ func WebSocket(rawURL string, onConnect, onDisconnect func(), onMessage func([]b
 	}
 
 	wsClient := &wsclient{
-		host:         urlObject.Host,
-		path:         urlObject.Path,
-		onConnect:    onConnect,
-		onDisconnect: onDisconnect,
-		onMessage:    onMessage,
+		host: urlObject.Host,
+		path: urlObject.Path,
 	}
 
 	return wsClient, nil
 }
 
-func (wsClient *wsclient) OnConnect(callback func()) {
-	wsClient.onConnect = callback
+// Connect initiates the WebSocket handshake with a WebSocket server. Once connected successfully
+// a new goroutine will be created which will read from the connection continuously, and return
+// control to the caller. A sync.WaitGroup must be managed by the caller. If wg.Wait() is not
+// called in the calling function, the WebSocket client will disconnect immediately.
+//
+// If the caller does not need to regain control, consider calling Run or RuCallback instead.
+func (wsClient *wsclient) Connect(wg *sync.WaitGroup) error {
+	connectionErr := wsClient.handleConnection()
+	if connectionErr != nil {
+		wg.Done()
+		return connectionErr
+	}
+
+	if wsClient.OnConnect != nil {
+		wsClient.OnConnect()
+	}
+
+	wg.Add(1)
+	go wsClient.readFromConnection(wg)
+
+	return nil
 }
 
-func (wsClient *wsclient) OnDisconnect(callback func()) {
-	wsClient.onDisconnect = callback
+// RunCallback initiates the WebSocket handshake with a WebSocker server, and upon successful
+// connection, runs the handler function passed as an argument. RunCallback does not return control
+// to the caller until the WebSocket client disconnects.
+//
+// If the caller needs to regain control while the WebSocket client is connected, consider calling
+// Connect instead, and managing a sync.WaitGroup manually.
+func (wsClient *wsclient) RunCallback(handler func()) error {
+	var wg sync.WaitGroup
+	connectErr := wsClient.Connect(&wg)
+	if connectErr != nil {
+		return connectErr
+	}
+
+	if handler != nil {
+		handler()
+	}
+
+	wg.Wait()
+	return nil
 }
 
-func (wsClient *wsclient) OnMessage(callback func([]byte)) {
-	wsClient.onMessage = callback
+// Run is an alias for RunCallback(nil). It is used to initiate the WebSocket handshake with a
+// WebSocket server, but does not execute any callback function. Run does not return control to the
+// caller until the WebSocket client disconnects.
+//
+// If the caller needs to regain control while the WebSocket client is connected, consider calling
+// Connect instead, and managing a sync.WaitGroup manually.
+func (wsClient *wsclient) Run() error {
+	runErr := wsClient.RunCallback(nil)
+	return runErr
 }
 
-func (wsClient *wsclient) Connect() error {
+func (wsClient *wsclient) handleConnection() error {
 	conn, connErr := net.Dial("tcp", wsClient.host)
 	if connErr != nil {
 		fmt.Printf("Error connecting to %s, terminating connection.\n", wsClient.host)
@@ -99,7 +147,7 @@ func (wsClient *wsclient) Connect() error {
 		case strings.HasPrefix(line, "Upgrade"):
 			if !strings.HasSuffix(line, "websocket\r\n") {
 				fmt.Println("Response not a WebSocket upgrade")
-				return nil
+				return &WSClientError{message: "Server response not a WebSocket upgrade"}
 			}
 
 		case strings.HasPrefix(line, "Sec-WebSocket-Accept"):
@@ -107,26 +155,21 @@ func (wsClient *wsclient) Connect() error {
 			if strings.TrimSpace(headerValue) != string(wsAccept) {
 				fmt.Printf("Invalid WS Key.\nExpected: %s\nReceived: %s\n",
 					wsAccept, headerValue)
-				return nil
+				return &WSClientError{message: "Server responded with invalid WebSocket key"}
 			}
 		}
-	}
-
-	if wsClient.onConnect != nil {
-		wsClient.onConnect()
 	}
 
 	return nil
 }
 
-func (wsClient *wsclient) Read(wg *sync.WaitGroup) {
-	wg.Add(1)
-	go wsClient.readFromConnection(wg)
-}
-
 func (wsClient *wsclient) readFromConnection(wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer (*wsClient.connection).Close()
+
+	if wsClient.OnDisconnect != nil {
+		defer wsClient.OnDisconnect()
+	}
 
 	readBuffer := make([]byte, 256)
 
@@ -135,6 +178,7 @@ ReadForever:
 		bytesRead, readErr := (*wsClient.connection).Read(readBuffer)
 		if readErr != nil {
 			fmt.Printf("Read Error: %s\n", readErr.Error())
+			break ReadForever
 		}
 
 		if bytesRead < 2 {
@@ -185,8 +229,8 @@ ReadForever:
 			data = wsClient.readFrameData(readBuffer[10:], uint64(payloadLength64))
 		}
 
-		if wsClient.onMessage != nil {
-			wsClient.onMessage(data)
+		if wsClient.OnMessage != nil {
+			wsClient.OnMessage(data)
 		}
 	}
 }
@@ -216,6 +260,7 @@ func (wsClient *wsclient) readFrameData(readBuffer []byte, length uint64) []byte
 	return data
 }
 
+// Sends bytes to connected WebSocket server
 func (wsClient *wsclient) Send(data []byte) {
 	mask := make([]byte, 4)
 	rand.Read(mask)
@@ -241,6 +286,4 @@ func (wsClient *wsclient) Send(data []byte) {
 	} else {
 		fmt.Printf("Bytes written: %d\n", n)
 	}
-
-	fmt.Println("sent")
 }
