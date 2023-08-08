@@ -111,7 +111,7 @@ Like the client, additional control can be gained by calling either `RunCallback
 ...
 
 wsServer.RunCallback(func() {
-	// this code runs after client connects
+	// this code runs after server starts
 	fmt.Println("Server running...")
 })
 ```
@@ -128,9 +128,13 @@ import (
 var wg sync.WaitGroup
 wsServer.Start(&wg)
 
-// this code runs as normal after client connects
+// this code runs as normal after server starts
 fmt.Println("Server running...")
 
-// manually wait for client to disconnect
+// manually wait for server to shutdown
 wg.Wait()
 ```
+
+---
+
+*Disclaimer: This package was created as a hobbyist learning project. It may not be fit for production use.*
