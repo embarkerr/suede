@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	wsClient, wsErr := ws.WebSocket("http://172.29.128.1:8080/chat")
+	wsClient, wsErr := ws.WebSocket("http://localhost:8080/chat")
 	if wsErr != nil {
 		fmt.Println("Unable to connect WebSocket")
 		return
@@ -41,7 +41,7 @@ func main() {
 	var wg sync.WaitGroup
 	connectErr := wsClient.Connect(&wg)
 	if connectErr != nil {
-		fmt.Println("WebSocket client failed to connect")
+		panic("WebSocket client failed to connect")
 	}
 
 	// add any additional logic here (before the wg.Wait() call), which will be executed as normal

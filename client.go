@@ -53,7 +53,6 @@ func WebSocket(rawURL string) (*wsclient, error) {
 func (wsClient *wsclient) Connect(wg *sync.WaitGroup) error {
 	connectionErr := wsClient.handleConnection()
 	if connectionErr != nil {
-		wg.Done()
 		return connectionErr
 	}
 
@@ -103,7 +102,9 @@ func (wsClient *wsclient) handleConnection() error {
 	conn, connErr := net.Dial("tcp", wsClient.host)
 	if connErr != nil {
 		fmt.Printf("Error connecting to %s, terminating connection.\n", wsClient.host)
-		conn.Close()
+		if conn != nil {
+			conn.Close()
+		}
 		return connErr
 	}
 
@@ -194,9 +195,13 @@ ReadForever:
 
 		case 0x9:
 			// ping
+			fmt.Println("got a ping, sending pong")
+			wsClient.pong(wsClient.connection)
 
 		case 0xA:
 			// pong
+			fmt.Println("got a pong")
+			continue
 
 		default:
 		}
@@ -286,4 +291,13 @@ func (wsClient *wsclient) Send(data []byte) {
 	} else {
 		fmt.Printf("Bytes written: %d\n", n)
 	}
+}
+
+func (wsClient *wsclient) Ping() {
+	(*wsClient.connection).Write([]byte{0x89, 0x80})
+}
+
+func (wsClient *wsclient) pong(connection *net.Conn) {
+	pongPayload := []byte{0x8A, 0x00}
+	(*connection).Write(pongPayload)
 }

@@ -162,9 +162,14 @@ ReadForever:
 
 		case 0x9:
 			// ping
+			fmt.Println("got a ping, sending a pong")
+			wsServer.pong(connection)
+			continue
 
 		case 0xA:
 			// pong
+			fmt.Println("got a pong")
+			continue
 
 		default:
 		}
@@ -258,4 +263,14 @@ func (wsServer *wsserver) Broadcast(data []byte) {
 
 func (wsServer *wsserver) Close() {
 	// TODO: this
+}
+
+func (wsServer *wsserver) Ping() {
+	for _, client := range wsServer.clients {
+		(*client).Write([]byte{0x89, 0x00})
+	}
+}
+
+func (wsServer *wsserver) pong(connection *net.Conn) {
+	(*connection).Write([]byte{0x8A, 0x00})
 }
