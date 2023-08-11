@@ -3,6 +3,7 @@ package kansowebsockets
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -146,7 +147,13 @@ ReadForever:
 	for true {
 		bytesRead, readErr := (*connection).Read(readBuffer)
 		if readErr != nil {
-			fmt.Printf("Read Error: %s\n", readErr.Error())
+			if readErr == io.EOF {
+				fmt.Println("Client disconnected")
+			} else {
+				fmt.Printf("Read Error: %s\n", readErr.Error())
+			}
+
+			break ReadForever
 		}
 
 		if bytesRead < 2 {
@@ -183,7 +190,6 @@ ReadForever:
 
 		payloadLength := payloadInfoByte & 0b01111111
 
-		fmt.Println(payloadLength)
 		data := make([]byte, 0, payloadLength)
 		switch {
 		case payloadLength < 126:

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	ws "kanso-websockets"
+	ws "github.com/matt-bourke/kanso-websockets"
 	"sync"
 )
 

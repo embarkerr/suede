@@ -244,6 +244,9 @@ func (wsClient *wsclient) readFrameData(readBuffer []byte, length uint64) []byte
 	data := make([]byte, 0, length)
 	for i := 0; i < len(readBuffer); i++ {
 		data = append(data, readBuffer[i])
+		if uint64(len(data)) == length {
+			break
+		}
 	}
 
 	if length <= uint64(len(data)) {
@@ -285,11 +288,9 @@ func (wsClient *wsclient) Send(data []byte) {
 	frame = append(frame, mask...)
 	frame = append(frame, maskedData...)
 
-	n, err := (*wsClient.connection).Write(frame)
+	_, err := (*wsClient.connection).Write(frame)
 	if err != nil {
 		fmt.Printf("Send error: %s\n", err.Error())
-	} else {
-		fmt.Printf("Bytes written: %d\n", n)
 	}
 }
 
