@@ -1,3 +1,3 @@
-module github.com/matt-bourke/kanso-websockets
+module github.com/embarkerr/suede
 
 go 1.20

@@ -1,4 +1,4 @@
-package kansowebsockets
+package suede
 
 import (
 	"encoding/binary"

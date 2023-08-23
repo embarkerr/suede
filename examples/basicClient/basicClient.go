@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	ws "kanso-websockets"
 	"sync"
+
+	"github.com/embarkerr/suede"
 )
 
 func main() {
-	wsClient, wsErr := ws.WebSocket("http://localhost:8080/chat")
+	wsClient, wsErr := suede.WebSocket("http://localhost:8080/chat")
 	if wsErr != nil {
 		fmt.Println("Unable to connect WebSocket")
 		return

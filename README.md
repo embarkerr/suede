@@ -1,9 +1,9 @@
-# Kanso WebSockets
+# Suede - A Go WebSockets Package
 
-Kanso WebSockets is a Go WebSocket package which provides an extremely simple and easy to use
+Suede WebSockets is a Go WebSocket package which provides an extremely simple and easy to use
 WebSocket interface.
 
-Kanso WebSockets is under initial development, but very basic functionality already exists.
+Suede WebSockets is under initial development, but very basic functionality already exists.
 See examples for current capabilities.
 
 ## Examples
@@ -11,12 +11,12 @@ See examples for current capabilities.
 ```go
 import (
 	"fmt"
-	ws "kanso-websockets"
+	"github.com/embarkerr/suede"
 )
 
 func main() {
 	// create Kanso WebSocket
-	wsClient, wsErr := ws.WebSocket("http://localhost:8080/chat")
+	wsClient, wsErr := suede.WebSocket("http://localhost:8080/chat")
 	if wsErr != nil {
 		panic("WS Client unable to connect")
 	}
@@ -76,12 +76,12 @@ wg.Wait()
  ```go
 import (
 	"fmt"
-	 ws "kanso-websockets"
+	 "github.com/embarkerr/suede"
 )
 
 func main() {
 	// create Kanso WebSocket server
-	wsServer, wsErr := ws.WebSocketServer(8080, "/chat")
+	wsServer, wsErr := suede.WebSocketServer(8080, "/chat")
 	if wsErr != nil {
 		panic("Could not create WebSocket server")
 	}
@@ -137,4 +137,4 @@ wg.Wait()
 
 ---
 
-*Disclaimer: This package was created as a hobbyist learning project. It may not be fit for production use.*
+*Disclaimer: This package was created as a hobbyist learning project. It is not recommended for production use.*

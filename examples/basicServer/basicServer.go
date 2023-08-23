@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	ws "github.com/matt-bourke/kanso-websockets"
 	"sync"
+
+	"github.com/embarkerr/suede"
 )
 
 func main() {
-	wsServer, wsErr := ws.WebSocketServer(8080, "/chat")
+	wsServer, wsErr := suede.WebSocketServer(8080, "/chat")
 	if wsErr != nil {
 		panic("Could not create WebSocket server")
 	}

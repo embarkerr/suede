@@ -1,4 +1,4 @@
-package kansowebsockets
+package suede
 
 import (
 	"crypto/sha1"

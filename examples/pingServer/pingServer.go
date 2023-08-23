@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	ws "kanso-websockets"
 	"time"
+
+	"github.com/embarkerr/suede"
 )
 
 func main() {
-	wsServer, wsErr := ws.WebSocketServer(8080, "/ping")
+	wsServer, wsErr := suede.WebSocketServer(8080, "/ping")
 	if wsErr != nil {
 		panic("ws server failed to start")
 	}

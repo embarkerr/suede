@@ -6,11 +6,11 @@ import (
 	"os"
 	"strings"
 
-	ws "github.com/matt-bourke/kanso-websockets"
+	"github.com/embarkerr/suede"
 )
 
 func main() {
-	client, wsErr := ws.WebSocket("http://localhost:8080/chat")
+	client, wsErr := suede.WebSocket("http://localhost:8080/chat")
 	if wsErr != nil {
 		panic("could not connect")
 	}

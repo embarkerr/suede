@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	ws "kanso-websockets"
 	"time"
+
+	"github.com/embarkerr/suede"
 )
 
 func main() {
-	wsClient, wsErr := ws.WebSocket("http://localhost:8080/ping")
+	wsClient, wsErr := suede.WebSocket("http://localhost:8080/ping")
 	if wsErr != nil {
 		panic("ws client failed to create")
 	}
