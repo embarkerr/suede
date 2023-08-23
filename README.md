@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	// create Kanso WebSocket
+	// create Suede WebSocket
 	wsClient, wsErr := suede.WebSocket("http://localhost:8080/chat")
 	if wsErr != nil {
 		panic("WS Client unable to connect")
@@ -80,7 +80,7 @@ import (
 )
 
 func main() {
-	// create Kanso WebSocket server
+	// create Suede WebSocket server
 	wsServer, wsErr := suede.WebSocketServer(8080, "/chat")
 	if wsErr != nil {
 		panic("Could not create WebSocket server")
